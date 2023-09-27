@@ -18,9 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
+import retrofit2.await
 
 class MainActivity : AppCompatActivity() {
 
@@ -50,77 +48,61 @@ class MainActivity : AppCompatActivity() {
         // Logging for debugging purposes.
         Log.d("Log2", "Making Retrofit call")
 
-      
+        //Launching Coroutines in the main thread
+        CoroutineScope(Dispatchers.Main).launch {
+            // Initialize the API interface using Retrofit.
+            val apiInterface = ApiClient.client.create(ApiInterface::class.java)
 
-        // Initialize the API interface using Retrofit.
-        val apiInterface = ApiClient.client.create(ApiInterface::class.java)
+            try {
+                // Fetch the JSON object directly using await()
+                val jsonResponse = apiInterface.getData().await()
 
-        // Define the call which will fetch the data.
-        val call: Call<JsonObject> = apiInterface.getData()
+                // No need for isSuccessful check since await() will throw an exception on failure.
+                processJsonResponse(jsonResponse)
 
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error: ${e.message}")
+            }
+        }
+    }
 
+    // Check if the API call was successful.
+    private fun processJsonResponse(jsonResponse: JsonObject) {
+        val json = JSONObject(jsonResponse.toString())
 
-        // Asynchronous call to fetch data.
-        call.enqueue(object : Callback<JsonObject> {
-            // This function is triggered when the API call gets a response.
-            override fun onResponse(call: Call<JsonObject>, response: Response<JsonObject>) {
-                Log.d(
-                    "Log3",
-                    "Data is coming with response code: ${response.code()} and message: ${response.message()}"
-                )
+        if (json.has("results")) {
+            val resultsArray = json.getJSONArray("results")
 
-                // Check if the API call was successful.
-                if (response.isSuccessful) {
-                    // Convert the Retrofit response to a JSONObject.
-                    val jsonResponse = JSONObject(response.body().toString())
+            for (i in 0 until resultsArray.length()) {
+                val model = HomeViewModel()
+                val resultObject = resultsArray.getJSONObject(i)
 
-                    // Check if the response contains the 'results' key.
-                    if (jsonResponse.has("results")) {
-                        // Fetch the array associated with the 'results' key.
-                        val resultsArray = jsonResponse.getJSONArray("results")
+                // Parse each field from the JSON object and store it in the model.
+                model._id = resultObject.getString("_id")
+                model.author = resultObject.getString("author")
+                model.content = resultObject.getString("content")
 
-                        // Iterate through each object in the array.
-                        for (i in 0 until resultsArray.length()) {
-                            // Initialize an instance of HomeViewModel to store the parsed data.
-                            val model = HomeViewModel()
-                            val resultObject = resultsArray.getJSONObject(i)
-
-                            // Parse each field from the JSON object and store it in the model.
-                            model._id = resultObject.getString("_id")
-                            model.author = resultObject.getString("author")
-                            model.content = resultObject.getString("content")
-
-                            // Parsing tags which is an array in the JSON response.
-                            val tagsList = mutableListOf<String>()
-                            val tagsArray = resultObject.getJSONArray("tags")
-                            for (j in 0 until tagsArray.length()) {
-                                tagsList.add(tagsArray.getString(j))
-                            }
-                            model.tags = tagsList
-
-                            model.authorSlug = resultObject.getString("authorSlug")
-                            model.length = resultObject.getInt("length")
-                            model.dateAdded = resultObject.getString("dateAdded")
-                            model.dateModified = resultObject.getString("dateModified")
-
-                            // Add the populated model to the arrayList.
-                            arrayList.add(model)
-                        }
-
-                        // After parsing all data, set it to the RecyclerView.
-                        buildRecycler()
-                    } else {
-                        Log.e("MainActivity", "The key 'results' is missing in the response.")
-                    }
+                // Parsing tags which is an array in the JSON response.
+                val tagsList = mutableListOf<String>()
+                val tagsArray = resultObject.getJSONArray("tags")
+                for (j in 0 until tagsArray.length()) {
+                    tagsList.add(tagsArray.getString(j))
                 }
+                model.tags = tagsList
+
+                model.authorSlug = resultObject.getString("authorSlug")
+                model.length = resultObject.getInt("length")
+                model.dateAdded = resultObject.getString("dateAdded")
+                model.dateModified = resultObject.getString("dateModified")
+
+                // Add the populated model to the arrayList.
+                arrayList.add(model)
             }
 
-
-            // This function is triggered when the API call fails.
-            override fun onFailure(call: Call<JsonObject>, t: Throwable) {
-                Log.e("MainActivity", "Error: ${t.message}")
-            }
-        })
+            buildRecycler()
+        } else {
+            Log.e("MainActivity", "The key 'results' is missing in the response.")
+        }
     }
 
     // This function initializes the RecyclerView.
